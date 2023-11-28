@@ -1,0 +1,76 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: OrderSystem
+Resources:
+  OrderLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      Policies:
+        - PolicyName: CloudWatch
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: logs:CreateLogGroup
+                Resource: # ARN needs to look like: "arn:aws:logs:REGION:ACCOUNTID:log-group:/aws/lambda/*:*:*"
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: # ARN needs to look like: "arn:aws:logs:REGION:ACCOUNTID:log-group:/aws/lambda/*:*:*"
+        - PolicyName: AllowPublishToSns
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: sns:publish
+                Resource: !Ref OrderSnsTopic
+
+  OrderFunction:
+    Type: AWS::Lambda::Function
+
+  OrderSnsTopic:
+    Type: AWS::SNS::Topic
+
+  ShipmentLambdaSnsSubscription:
+    Type: AWS::SNS::Subscription
+
+  OrderTopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      Topics:
+        - !Ref OrderSnsTopic
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action: sns:Publish
+            Resource: !Ref OrderSnsTopic
+            Principal:
+              AWS: '*'
+            Condition:
+              ArnLike:
+                AWS:SourceArn: !GetAtt OrderFunction.Arn
+
+  ShipmentLambdaRole:
+    Type: AWS::IAM::Role
+    # Use the OrderLambdaRole as a starting point and adjust where needed
+    # This role needs to be able to put* into dynamodb
+
+  ShipmentFunction:
+    Type: AWS::Lambda::Function
+
+  ShipmentInvokePermission:
+    Type: AWS::Lambda::Permission
+
+  ShipmentTable:
+    Type: AWS::DynamoDB::Table

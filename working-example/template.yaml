@@ -1,0 +1,151 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: OrderSystem
+Resources:
+  OrderLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      Policies:
+        - PolicyName: CloudWatch
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: logs:CreateLogGroup
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/*:*:*"
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/*:*:*"
+        - PolicyName: AllowPublishToSns
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: sns:publish
+                Resource: !Ref OrderSnsTopic
+
+  OrderFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: order
+      Runtime: python3.11
+      Role: !GetAtt OrderLambdaRole.Arn
+      Handler: main.lambda_handler
+      Environment:
+        Variables:
+          SNS_TOPIC_ARN: !Ref OrderSnsTopic
+      Code:
+        ZipFile: |
+          def lambda_handler(event, context):
+            print('hello world')
+            return
+
+  OrderSnsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: order
+
+  ShipmentLambdaSnsSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !GetAtt ShipmentFunction.Arn
+      Protocol: lambda
+      TopicArn: !Ref OrderSnsTopic
+
+  OrderTopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      Topics:
+        - !Ref OrderSnsTopic
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action: sns:Publish
+            Resource: !Ref OrderSnsTopic
+            Principal:
+              AWS: '*'
+            Condition:
+              ArnLike:
+                AWS:SourceArn: !GetAtt OrderFunction.Arn
+
+  ShipmentLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      Policies:
+        - PolicyName: CloudWatch
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: logs:CreateLogGroup
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/*:*:*"
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/*:*:*"
+        - PolicyName: AllowDynamoDB
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: dynamodb:*
+                Resource: '*'
+
+  ShipmentFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: shipment
+      Runtime: python3.11
+      Role: !GetAtt ShipmentLambdaRole.Arn
+      Handler: main.lambda_handler
+      Environment:
+        Variables:
+          SHIPMENT_DYNAMODB_TABLE_NAME: !Ref ShipmentTable
+      Code:
+        ZipFile: |
+          def lambda_handler(event, context):
+            print('hello world')
+            return
+
+  ShipmentInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref ShipmentFunction
+      Principal: sns.amazonaws.com
+      SourceArn: !Ref OrderSnsTopic
+
+  ShipmentTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: 'shipments'
+      AttributeDefinitions:
+        - AttributeName: order_id
+          AttributeType: S
+      BillingMode: PAY_PER_REQUEST
+      KeySchema:
+        - AttributeName: order_id
+          KeyType: HASH
